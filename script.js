@@ -4,7 +4,8 @@ const Modal = {
         //adicionar a class active ao modal
         document
             .querySelector('.modal-overlay')
-            .classList.add('active')
+            .classList
+            .add('active')
     },
     close(){
         //fechar modal
@@ -17,33 +18,35 @@ const Modal = {
     // tbm pode ser feito através da funcao toogle
 }
 
+const Storage = {
+    get() {
+        return JSON.parse(localStorage.getItem("dev.finances:transactions")) || []
+    },
 
-const transactions = [{
-    id: 1,
-    description: 'Luz',
-    amount: -50000,
-    date: '23/01/2021'
-},
-{
-    id: 2,
-    description: 'Website',
-    amount: 500000,
-    date: '23/01/2021'
-},
-{
-    id: 3,
-    description: 'Internet',
-    amount: -20000,
-    date: '23/01/2021'
+    set(transactions) {
+        localStorage.setItem("dev.finances:transactions", JSON.stringify (transactions))
+    }
 }
-]
-
 
 const Transaction = {
+    all: Storage.get(),
+
+    add(transaction){
+        Transaction.all.push(transaction)
+
+        App.reload()
+    },
+
+    remove(index) {
+        Transaction.all.splice(index, 1)
+
+        App.reload()
+    },
+
     incomes() {
         let income = 0;
 
-        transactions.forEach(transaction => {
+        Transaction.all.forEach(transaction => {
             if( transaction.amount > 0 ) {
                 income += transaction.amount;
             }
@@ -51,11 +54,21 @@ const Transaction = {
         return income;
     
     },
+
     expenses() {
         //somar as saídas
+        let expense = 0;
+        Transaction.all.forEach(transaction => {
+            if( transaction.amount < 0 ) {
+                expense += transaction.amount;
+            }
+        })
+        return expense;
     },
+
     total() {
         //entradas - saídas
+        return Transaction.incomes() + Transaction.expenses();
     }
 }
 
@@ -65,13 +78,13 @@ const DOM = {
 
     addTransaction(transaction, index) {
         const tr = document.createElement('tr')
-        tr.innerHTML = DOM.innerHTMLTransaction
+        tr.innerHTML = DOM.innerHTMLTransaction(transaction, index)
+        tr.dataset.index = index
 
         DOM.transactionsContainer.appendChild(tr)
     },
     
-    innerHTMLTransaction(transaction) {
-        
+    innerHTMLTransaction(transaction, index) {
         const CSSclass = transaction.amount > 0 ? "income" : "expense"
 
         const amount = Utils.formatCurrency(transaction.amount)
@@ -81,7 +94,7 @@ const DOM = {
         <td class="${CSSclass}">${amount}</td>
         <td class="date">${transaction.date}</td>
         <td>
-            <img src="./assets/minus.svg" alt="Remover transação">
+            <img onclick="Transaction.remove(${index})" src="./assets/minus.svg" alt="Remover transação">
         </td>
         `
 
@@ -90,19 +103,37 @@ const DOM = {
 
     updateBalance() {
         document
-            .document.getElementById('incomeDisplay')
-            .innerHTML = Transaction.incomes()
+            .getElementById('incomeDisplay')
+            .innerHTML = Utils.formatCurrency(Transaction.incomes())
         document
-            .document.getElementById('expensesDisplay')
-            .innerHTML = Transaction.expenses()
+            .getElementById('expensesDisplay')
+            .innerHTML = Utils.formatCurrency(Transaction.expenses())
         document
-            .document.getElementById('totalDisplay')
-            .innerHTML = Transaction.total()
+            .getElementById('totalDisplay')
+            .innerHTML = Utils.formatCurrency(Transaction.total())
+    },
+
+    clearTransactions() {
+        DOM.transactionsContainer.innerHTML = ""
     }
 }
 
 //formatacao para o formato de valor/moeda
 const Utils = {
+    formatAmount(value){
+       /* value = Number(value.replace(/\,\./g,"")) * 100
+
+        return value
+        */
+       value = value * 100
+       return Math.round(value)
+    },
+
+    formatDate(date) {
+        const splittedDate = date.split("-")
+        return `${splittedDate[2]}/${splittedDate[1]}/${splittedDate[0]}`
+    },
+
     formatCurrency(value) {
         const signal = Number(value) < 0 ? "-" : ""
 
@@ -110,7 +141,7 @@ const Utils = {
 
         value = Number(value) / 100
          
-        value = value.toLocalString ("pt-BR", {
+        value = value.toLocaleString ("pt-BR", {
             style: "currency",
             currency : "BRL"
         })
@@ -119,9 +150,90 @@ const Utils = {
     }
 }
 
-
-transactions.forEach(function(transaction){
+/*transactions.forEach(function(transaction){
     DOM.addTransaction(transaction)
-})
+}) */
 
-DOM.updateBalance()
+//DOM.updateBalance()
+
+const Form = {
+    description: document.querySelector('input#description'),
+    amount: document.querySelector('input#amount'),
+    date: document.querySelector('input#date'),
+
+    getValues() {
+        return {
+            description: Form.description.value,
+            amount: Form.amount.value,
+            date: Form.date.value,
+        }
+    },
+
+    validateFields() {
+        const { description, amount, date } = Form.getValues()
+
+        if( description.trim() === "" ||
+            amount.trim() === "" ||
+            date.trim() === "" ) {
+                throw new Error("Por favor, preencha todos os campos")
+            }
+    },
+
+    formatValues() {
+        let { description, amount, date } = Form.getValues()
+
+        amount = Utils.formatAmount(amount)
+
+        date = Utils.formatDate(date)
+
+        return  {
+            description,
+            amount,
+            date
+        }
+    },
+    //limpar os dados no formulario
+    clearFields () {
+        Form.description.value = ""
+        Form.amount.value = ""
+        Form.date.value = ""
+    },
+
+    submit(event) {
+        event.preventDefault()
+
+        try {
+            //verificar se os campos estao validos
+            Form.validateFields()
+            //buscar a transacao formatada
+            const transaction = Form.formatValues()
+            //salvar
+            Transaction.add(transaction)
+            //apagar os dados do formulario
+            Form.clearFields()
+            //modal feche
+            Modal.close()
+            //atualizar a aplicacao: nao é necessario pois ja tem um app reload no add
+
+        } catch (error) {
+            alert(error.message)
+        }
+    }
+}
+
+const App = {
+    init() {
+        Transaction.all.forEach(DOM.addTransaction)
+      
+        DOM.updateBalance()
+
+        Storage.set(Transaction.all)
+    },
+    reload() {
+        DOM.clearTransactions()
+        App.init()
+
+    },
+}
+
+App.init()
